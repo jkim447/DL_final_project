@@ -28,7 +28,7 @@ print(m)
 
 class Args(object):
   def __init__(self, name='mnist', batch_size=64, test_batch_size=1000,
-            epochs=5, lr=0.001, optimizer='sgd', momentum=0.5,
+            epochs=30, lr=0.001, optimizer='sgd', momentum=0.5,
             seed=1, log_interval=100, dataset='mnist',
             data_dir='./tiny_imagenet_challenge/tiny-imagenet-200', model='default',
             cuda=True, bce=False):
@@ -80,7 +80,7 @@ def prepare_imagenet(args):
     return train_data_loader, val_data_loader
 
 def train(args, model, optimizer, train_loader, epoch, total_minibatch_count,
-        train_losses, train_accs):
+        train_losses, train_accs, train_topk_accs):
     # Training for a full epoch
     
     model.train()
@@ -108,24 +108,11 @@ def train(args, model, optimizer, train_loader, epoch, total_minibatch_count,
         # The batch has ended, determine the accuracy of the predicted outputs
         pred = output.data.max(1)[1]  
         
-        #batch_size=target.size(0)
-        #_, pred_topk = output.topk(5,1,True,True)
-        #pred_topk = pred_topk.t()
-        #correct_topk=pred_topk.eq(target.view(1,-1).expand_as(pred_topk))
-        #correct_topk = correct_topk[:5].view(-1).float().sum(0,keepdim=True)
-        #correct_topk = correct_topk.mul_(100.0/batch_size)
-
-        # target labels and predictions are categorical values from 0 to 9.
+         # target labels and predictions are categorical values from 0 to 9.
         matches = target == pred
         accuracy = matches.float().mean()
         correct_count += matches.sum()
-        
-        if args.log_interval != 0 and \
-                total_minibatch_count % args.log_interval == 0:
-
-            train_losses.append(loss.data[0])
-            train_accs.append(accuracy.data[0])
-            
+ 
         total_loss += loss.data
         total_acc += accuracy.data
         progress_bar.set_description(
@@ -133,15 +120,38 @@ def train(args, model, optimizer, train_loader, epoch, total_minibatch_count,
                 epoch, total_loss / (batch_idx + 1), total_acc / (batch_idx + 1)))
         #progress_bar.refresh()
 
+ 
+        if args.log_interval != 0 and total_minibatch_count % args.log_interval == 0:
+
+            train_losses.append(loss.data[0].cpu().numpy())
+            train_accs.append(accuracy.data[0].cpu().numpy())
+            
+            # calculate topk accuracy
+            batch_size=target.size(0)
+            _, pred_topk = output.topk(5,1,True,sorted=True)
+            pred_topk = pred_topk.t()
+            correct_topk=pred_topk.eq(target.view(1,-1).expand_as(pred_topk))
+            correct_topk = correct_topk[:5].view(-1).float().sum(0,keepdim=True)
+            correct_topk = correct_topk.mul_(100.0/batch_size)
+            
+            train_topk_accs.append(correct_topk.data[0].cpu().numpy())
+            
+            # write to csv file
+            #print("logging train csv now")
+            with open(os.path.join(os.getcwd(),'train.csv'),'w') as f:
+                csvw=csv.writer(f,delimiter=',')
+                for loss,acc,topk_accs in zip(train_losses,train_accs,train_topk_accs):
+                    csvw.writerow((loss,acc,topk_accs))
+
         total_minibatch_count += 1
 
     return total_minibatch_count
 
 def test(args, model, test_loader, epoch, total_minibatch_count,
-        val_losses, val_accs):
+        val_losses, val_accs, val_topk_accs):
     # Validation Testing
     model.eval()
-    test_loss, correct = 0., 0.
+    test_loss, correct, topk_correct = 0., 0., 0.
     progress_bar = tqdm.tqdm(test_loader, desc='Validation')
     with torch.no_grad():
         for data, target in progress_bar:
@@ -149,24 +159,36 @@ def test(args, model, test_loader, epoch, total_minibatch_count,
                 data, target = data.cuda(), target.cuda()
             data, target = Variable(data), Variable(target)
             output = model(data)
-            if args.bce == False:
-              test_loss += F.nll_loss(output, target, reduction='sum').data  # sum up batch loss
-              pred = output.data.max(1)[1]  # get the index of the max log-probability
-            else: 
-              #test_loss += F.binary_cross_entropy(output, target, size_average=True, reduce=True) 
-              bce_loss = P3BCELoss()
-              test_loss += bce_loss(output,target)
-              pred = output.data.max(1)[1]
-              #pred = torch.where(output.data > torch.cuda.FloatTensor([0.5]), torch.cuda.FloatTensor([1]), torch.cuda.FloatTensor([0]))
+            
+            test_loss += F.nll_loss(output, target, reduction='sum').data  # sum up batch loss
+            pred = output.data.max(1)[1]  # get the index of the max log-probability
             correct += (target == pred).float().sum()
+            
+            #calculate topk accuracy
+            batch_size=target.size(0)
+            _, pred_topk = output.topk(5,1,True,sorted=True)
+            pred_topk = pred_topk.t()
+            correct_topk=pred_topk.eq(target.view(1,-1).expand_as(pred_topk))
+            # this is the sum
+            correct_topk = correct_topk[:5].view(-1).float().sum(0,keepdim=True)
+            # keep a sum of all the correct in topk for this batch
+            topk_correct += correct_topk
 
     test_loss /= len(test_loader.dataset)
-    
     acc = correct / len(test_loader.dataset)
+    topk_acc = topk_correct/len(test_loader.dataset)
 
-    val_losses.append(test_loss)
-    val_accs.append(acc)
-    
+    val_losses.append(test_loss.data[0].cpu().numpy())
+    val_accs.append(acc.data[0].cpu().numpy())
+    val_topk_accs.append(topk_acc.data[0].cpu().numpy())
+
+    # write to csv file
+    #print("logging test csv now")
+    with open(os.path.join(os.getcwd(),'test.csv'),'w') as f:
+        csvw=csv.writer(f,delimiter=',')
+        for loss,acc,topk_accs in zip(val_losses,val_accs,val_topk_accs):
+            csvw.writerow((loss,acc,topk_accs))
+
     progress_bar.clear()
     progress_bar.write(
         '\nEpoch: {} validation test results - Average val_loss: {:.4f}, val_acc: {}/{} ({:.2f}%)'.format(
@@ -221,31 +243,31 @@ def run_experiment(args):
 
     # Choose optimizer
     optimizer = optim.Adam(model.parameters())
-    
+
     val_acc = 0
-    train_losses, train_accs = [], []
-    val_losses, val_accs = [], []
+    train_losses, train_accs, train_topk_accs = [], [], []
+    val_losses, val_accs, val_topk_accs = [], [], []
 
     for epoch in range(1, epochs_to_run + 1):
         # train for 1 epoch
         total_minibatch_count = train(args, model, optimizer, train_loader,
                                     epoch, total_minibatch_count,
-                                    train_losses, train_accs)
+                                    train_losses, train_accs, train_topk_accs)
         # validate progress on test dataset
         val_acc = test(args, model, val_loader, epoch, total_minibatch_count,
-                       val_losses, val_accs)
+                       val_losses, val_accs, val_topk_accs)
         
-    fig, axes = plt.subplots(1,4, figsize=(13,4))
+    #fig, axes = plt.subplots(1,4, figsize=(13,4))
     # plot the losses and acc
-    plt.title(args.name)
-    axes[0].plot(train_losses)
-    axes[0].set_title("Loss")
-    axes[1].plot(train_accs)
-    axes[1].set_title("Acc")
-    axes[2].plot(val_losses)
-    axes[2].set_title("Val loss")
-    axes[3].plot(val_accs)
-    axes[3].set_title("Val Acc")
+    #plt.title(args.name)
+    #axes[0].plot(train_losses)
+    #axes[0].set_title("Loss")
+    #axes[1].plot(train_accs)
+    #axes[1].set_title("Acc")
+    #axes[2].plot(val_losses)
+    #axes[2].set_title("Val loss")
+    #axes[3].plot(val_accs)
+    #axes[3].set_title("Val Acc")
     
     # Write to csv file
     #with open(os.path.join(run_path + 'train.csv'), 'w') as f:
