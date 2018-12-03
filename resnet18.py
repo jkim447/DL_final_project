@@ -20,9 +20,19 @@ from torchvision import models
 from torchvision import transforms
 from torchvision import datasets
 
-m = models.resnet18(pretrained=False)
+# in order to pre-train final layers
+# import the model w/ pretrained --> True
+# change the mean & stdev operation in the dataloader for both train/val
+# put the model in inference mode, depending for both train/test
+# otherwise change it back if training form scratch
+
+
+m = models.resnet18(pretrained=True)
 m.cuda()
 print(m)
+TRAIN_MEAN = [0.485, 0.456, 0.406]
+TRAIN_STD = [0.229, 0.224, 0.225]
+
 # The Args object will contain all of our parameters
 # If you want to run with different arguments, create another Args object
 
@@ -58,17 +68,29 @@ def prepare_imagenet(args):
     val_dir = os.path.join(dataset_dir, 'val/images')
     kwargs = {'num_workers': 1, 'pin_memory': True} if args.cuda else {}
     
-    normalize = transforms.Normalize(mean=[0.5, 0.5, 0.5],
-                                     std=[0.5, 0.5, 0.5])
-    
     print('Preparing dataset ...')
-    train_data = datasets.ImageFolder(root=train_dir, 
-                                      transform=transforms.Compose([
-                                          transforms.Resize((224,224)), transforms.ToTensor()]))
     
+    # Training data transform
+    train_transform = transforms.Compose([
+        transforms.Resize(224),
+        transforms.ToTensor(),
+        transforms.Normalize(TRAIN_MEAN, TRAIN_STD)
+    ])
+
+    # Validation data Transform 
+    val_transform = transforms.Compose([
+        transforms.Resize(224),
+        transforms.ToTensor(),
+        transforms.Normalize(TRAIN_MEAN, TRAIN_STD)
+    ])
+
+    # Create train dataloader
+    train_data = datasets.ImageFolder(root=train_dir, 
+                                      transform=train_transform)
+    
+    # create test data loader
     val_data = datasets.ImageFolder(root=val_dir, 
-                                    transform=transforms.Compose([
-                                        transforms.Resize((224,224)), transforms.ToTensor()]))
+                                    transform=val_transform)
     
     print('Preparing data loaders ...')
     train_data_loader = torch.utils.data.DataLoader(train_data, batch_size=args.batch_size, 
@@ -83,7 +105,9 @@ def train(args, model, optimizer, train_loader, epoch, total_minibatch_count,
         train_losses, train_accs, train_topk_accs):
     # Training for a full epoch
     
-    model.train()
+    # change it back to model.train() if training from scratch
+    #model.train()
+    model.eval()
     correct_count, total_loss, total_acc = 0., 0., 0.
     progress_bar = tqdm.tqdm(train_loader, desc='Training')
     
@@ -242,7 +266,8 @@ def run_experiment(args):
     model.cuda()
 
     # Choose optimizer
-    optimizer = optim.Adam(model.parameters())
+    # change it back to model.parameters() if training from scratch
+    optimizer = optim.Adam(model.final_linear.parameters())
 
     val_acc = 0
     train_losses, train_accs, train_topk_accs = [], [], []
