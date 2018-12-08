@@ -27,6 +27,7 @@ from torchvision import datasets
 # otherwise change it back if training form scratch
 
 
+# import resnet
 m = models.resnet18(pretrained=True)
 m.cuda()
 print(m)
@@ -35,7 +36,6 @@ TRAIN_STD = [0.229, 0.224, 0.225]
 
 # The Args object will contain all of our parameters
 # If you want to run with different arguments, create another Args object
-
 class Args(object):
   def __init__(self, name='mnist', batch_size=64, test_batch_size=1000,
             epochs=30, lr=0.001, optimizer='sgd', momentum=0.5,
@@ -121,7 +121,7 @@ def train(args, model, optimizer, train_loader, epoch, total_minibatch_count,
 
         # Forward prediction step
         output = model(data)
-
+        
         # find the loss
         loss = F.nll_loss(output, target)
 
@@ -176,6 +176,8 @@ def test(args, model, test_loader, epoch, total_minibatch_count,
     # Validation Testing
     model.eval()
     test_loss, correct, topk_correct = 0., 0., 0.
+    all_outputs = []
+    all_labels = []
     progress_bar = tqdm.tqdm(test_loader, desc='Validation')
     with torch.no_grad():
         for data, target in progress_bar:
@@ -186,8 +188,14 @@ def test(args, model, test_loader, epoch, total_minibatch_count,
             
             test_loss += F.nll_loss(output, target, reduction='sum').data  # sum up batch loss
             pred = output.data.max(1)[1]  # get the index of the max log-probability
-            correct += (target == pred).float().sum()
             
+            correct += (target == pred).float().sum()
+           
+            # Use for error analysis
+            all_outputs.append(correct.data[0].cpu().numpy())
+            print(correct.data.cpu().numpy().shape)
+            all_labels.append(target.data[0].cpu().numpy())
+ 
             #calculate topk accuracy
             batch_size=target.size(0)
             _, pred_topk = output.topk(5,1,True,sorted=True)
@@ -197,6 +205,19 @@ def test(args, model, test_loader, epoch, total_minibatch_count,
             correct_topk = correct_topk[:5].view(-1).float().sum(0,keepdim=True)
             # keep a sum of all the correct in topk for this batch
             topk_correct += correct_topk
+    
+    # perform error analysis
+    all_outputs = np.asarray(all_outputs)
+    all_labels = np.asarray(all_labels)
+    print(all_outputs.shape)
+    print(all_labels.shape)
+    # number of classes
+    correctness = []
+    num_corrects = []
+    for i in range(200):
+        all_outputs = all_outputs == i
+        all_labels = all_labels == i
+        correct = all_outputs == all_labels
 
     test_loss /= len(test_loader.dataset)
     acc = correct / len(test_loader.dataset)
@@ -275,13 +296,16 @@ def run_experiment(args):
 
     for epoch in range(1, epochs_to_run + 1):
         # train for 1 epoch
-        total_minibatch_count = train(args, model, optimizer, train_loader,
-                                    epoch, total_minibatch_count,
-                                    train_losses, train_accs, train_topk_accs)
+        #total_minibatch_count = train(args, model, optimizer, train_loader,
+        #                            epoch, total_minibatch_count,
+        #                            train_losses, train_accs, train_topk_accs)
         # validate progress on test dataset
         val_acc = test(args, model, val_loader, epoch, total_minibatch_count,
                        val_losses, val_accs, val_topk_accs)
-        
+    
+    
+    # error analysis
+    # save model output, save model
     #fig, axes = plt.subplots(1,4, figsize=(13,4))
     # plot the losses and acc
     #plt.title(args.name)
