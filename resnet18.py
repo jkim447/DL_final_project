@@ -2,8 +2,9 @@ import math
 import os
 import datetime
 import csv
+import matplotlib
+matplotlib.use('agg')
 import matplotlib.pyplot as plt
-
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -19,6 +20,7 @@ import torchvision
 from torchvision import models
 from torchvision import transforms
 from torchvision import datasets
+from collections import defaultdict
 
 # in order to pre-train final layers
 # import the model w/ pretrained --> True
@@ -61,6 +63,17 @@ class Args(object):
     # for binary cross entropy
     self.bce = bce
 
+# get class name - written by Hanyuan Xu
+def get_class_name(args): 
+    class_to_name = dict()
+    fp = open(os.path.join(args.data_dir, 'words.txt'), 'r')
+    data = fp.readlines()
+    for line in data:
+        words = line.strip('\n').split('\t')
+        class_to_name[words[0]] = words[1].split(',')[0]
+    fp.close()
+    return class_to_name
+
 def prepare_imagenet(args):
     #dataset_dir = os.path.join(args.data_dir, args.dataset)
     dataset_dir = args.data_dir
@@ -99,7 +112,7 @@ def prepare_imagenet(args):
     val_data_loader = torch.utils.data.DataLoader(val_data, batch_size=args.test_batch_size, 
                                                   shuffle=True, **kwargs)
     
-    return train_data_loader, val_data_loader
+    return train_data_loader, val_data_loader, train_data, val_data
 
 def train(args, model, optimizer, train_loader, epoch, total_minibatch_count,
         train_losses, train_accs, train_topk_accs):
@@ -172,12 +185,14 @@ def train(args, model, optimizer, train_loader, epoch, total_minibatch_count,
     return total_minibatch_count
 
 def test(args, model, test_loader, epoch, total_minibatch_count,
-        val_losses, val_accs, val_topk_accs):
+        val_losses, val_accs, val_topk_accs, idx_to_class):
     # Validation Testing
     model.eval()
     test_loss, correct, topk_correct = 0., 0., 0.
     all_outputs = []
     all_labels = []
+    # Error analysis
+    counter = defaultdict(int)
     progress_bar = tqdm.tqdm(test_loader, desc='Validation')
     with torch.no_grad():
         for data, target in progress_bar:
@@ -192,10 +207,10 @@ def test(args, model, test_loader, epoch, total_minibatch_count,
             correct += (target == pred).float().sum()
            
             # Use for error analysis
-            all_outputs.append(correct.data[0].cpu().numpy())
-            print(correct.data.cpu().numpy().shape)
-            all_labels.append(target.data[0].cpu().numpy())
- 
+            for i in range(len(target)):
+                if target[i] != pred[i]:
+                    counter[idx_to_class[int(target[i])]] += 1
+                
             #calculate topk accuracy
             batch_size=target.size(0)
             _, pred_topk = output.topk(5,1,True,sorted=True)
@@ -205,19 +220,27 @@ def test(args, model, test_loader, epoch, total_minibatch_count,
             correct_topk = correct_topk[:5].view(-1).float().sum(0,keepdim=True)
             # keep a sum of all the correct in topk for this batch
             topk_correct += correct_topk
+   
+    # plot graph for error analysis
+    least = sorted(counter.items(), key=lambda x: x[1])[:5]
+    most = sorted(counter.items(), key=lambda x: x[1], reverse=True)[:5]
+    class_to_name = get_class_name(args)
+
+    plt.bar(range(5), [l[1] for l in least], align='center', alpha = 0.5)
     
-    # perform error analysis
-    all_outputs = np.asarray(all_outputs)
-    all_labels = np.asarray(all_labels)
-    print(all_outputs.shape)
-    print(all_labels.shape)
-    # number of classes
-    correctness = []
-    num_corrects = []
-    for i in range(200):
-        all_outputs = all_outputs == i
-        all_labels = all_labels == i
-        correct = all_outputs == all_labels
+    plt.xticks(range(5), [l[0] + '\n' + class_to_name[l[0]] for l in least], fontsize = 'xx-small')
+    plt.ylabel('Misclassified')
+    plt.title('Least Misclassified Images')
+    filename = 'err_least.png'
+    plt.savefig(filename)
+    plt.clf()
+
+    plt.bar(range(5), [m[1] for m in most], align='center', alpha=0.5)
+    plt.xticks(range(5), [m[0] + '\n' + class_to_name[m[0]] for m in most], fontsize = 'xx-small')
+    plt.ylabel('Misclassified')
+    plt.title('Most Misclassified Images')
+    filename = 'err_most.png'
+    plt.savefig(filename)
 
     test_loss /= len(test_loader.dataset)
     acc = correct / len(test_loader.dataset)
@@ -263,7 +286,6 @@ class TruncatedBinaryResnet(torch.nn.Module):
     x = self.orig_resnet.avgpool(x)
     x = x.view(x.size(0), -1)
 
-    # x = self.fc(x) # TODO
     x = self.final_linear(x) # TODO
     x = F.log_softmax(x, dim=1)
     return x
@@ -279,7 +301,11 @@ def run_experiment(args):
         torch.cuda.manual_seed(args.seed)
         
     # load data
-    train_loader, val_loader = prepare_imagenet(args)
+    train_loader, val_loader, _, val_data = prepare_imagenet(args)
+    
+    # for error analysis (class name, class index)
+    idx_to_class = {i: c for c, i in val_data.class_to_idx.items()}
+
     epochs_to_run = args.epochs
     
     # initialize model
@@ -301,7 +327,7 @@ def run_experiment(args):
         #                            train_losses, train_accs, train_topk_accs)
         # validate progress on test dataset
         val_acc = test(args, model, val_loader, epoch, total_minibatch_count,
-                       val_losses, val_accs, val_topk_accs)
+                       val_losses, val_accs, val_topk_accs, idx_to_class)
     
     
     # error analysis
