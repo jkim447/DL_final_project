@@ -28,7 +28,6 @@ from collections import defaultdict
 # put the model in inference mode, depending for both train/test
 # otherwise change it back if training form scratch
 
-
 # import resnet
 m = models.resnet18(pretrained=True)
 m.cuda()
@@ -263,6 +262,9 @@ def test(args, model, test_loader, epoch, total_minibatch_count,
             epoch, test_loss, correct, len(test_loader.dataset),
             100. * correct / len(test_loader.dataset)))
 
+    # save the model as .ckpt
+    torch.save(model.state_dict(), 'model_parameters.ckpt')
+    
     return acc
 
 class TruncatedBinaryResnet(torch.nn.Module):
@@ -322,9 +324,10 @@ def run_experiment(args):
 
     for epoch in range(1, epochs_to_run + 1):
         # train for 1 epoch
-        #total_minibatch_count = train(args, model, optimizer, train_loader,
-        #                            epoch, total_minibatch_count,
-        #                            train_losses, train_accs, train_topk_accs)
+        total_minibatch_count = train(args, model, optimizer, train_loader,
+                                    epoch, total_minibatch_count,
+                                    train_losses, train_accs, train_topk_accs)
+        
         # validate progress on test dataset
         val_acc = test(args, model, val_loader, epoch, total_minibatch_count,
                        val_losses, val_accs, val_topk_accs, idx_to_class)
