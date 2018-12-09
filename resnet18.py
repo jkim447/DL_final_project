@@ -86,8 +86,7 @@ def prepare_imagenet(args):
     train_transform = transforms.Compose([
         transforms.Resize(224),
         transforms.ToTensor(),
-        transforms.Normalize(TRAIN_MEAN, TRAIN_STD),
-        transforms.RandomHorizontalFlip()
+        transforms.Normalize(TRAIN_MEAN, TRAIN_STD)
     ])
 
     # Validation data Transform 
@@ -243,6 +242,7 @@ def test(args, model, test_loader, epoch, total_minibatch_count,
     plt.title('Most Misclassified Images')
     filename = 'err_most.png'
     plt.savefig(filename)
+    plt.clf()
 
     test_loss /= len(test_loader.dataset)
     acc = correct / len(test_loader.dataset)
