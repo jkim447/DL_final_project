@@ -86,7 +86,8 @@ def prepare_imagenet(args):
     train_transform = transforms.Compose([
         transforms.Resize(224),
         transforms.ToTensor(),
-        transforms.Normalize(TRAIN_MEAN, TRAIN_STD)
+        transforms.Normalize(TRAIN_MEAN, TRAIN_STD),
+        transforms.RandomHorizontalFlip()
     ])
 
     # Validation data Transform 
@@ -99,7 +100,7 @@ def prepare_imagenet(args):
     # Create train dataloader
     train_data = datasets.ImageFolder(root=train_dir, 
                                       transform=train_transform)
-    
+
     # create test data loader
     val_data = datasets.ImageFolder(root=val_dir, 
                                     transform=val_transform)
@@ -107,6 +108,8 @@ def prepare_imagenet(args):
     print('Preparing data loaders ...')
     train_data_loader = torch.utils.data.DataLoader(train_data, batch_size=args.batch_size, 
                                                     shuffle=True, **kwargs)
+    
+        
     
     val_data_loader = torch.utils.data.DataLoader(val_data, batch_size=args.test_batch_size, 
                                                   shuffle=True, **kwargs)
