@@ -223,21 +223,21 @@ def test(args, model, test_loader, epoch, total_minibatch_count,
             topk_correct += correct_topk
    
     # plot graph for error analysis
-    least = sorted(counter.items(), key=lambda x: x[1])[:5]
-    most = sorted(counter.items(), key=lambda x: x[1], reverse=True)[:5]
+    least = sorted(counter.items(), key=lambda x: x[1])[:10]
+    most = sorted(counter.items(), key=lambda x: x[1], reverse=True)[:10]
     class_to_name = get_class_name(args)
 
-    plt.bar(range(5), [l[1] for l in least], align='center', alpha = 0.5)
+    plt.bar(range(10), [l[1] for l in least], align='center', alpha = 0.5)
     
-    plt.xticks(range(5), [l[0] + '\n' + class_to_name[l[0]] for l in least], fontsize = 'xx-small')
+    plt.xticks(range(10), [l[0] + '\n' + class_to_name[l[0]] for l in least], fontsize = 'xx-small')
     plt.ylabel('Misclassified')
     plt.title('Least Misclassified Images')
     filename = 'err_least.png'
     plt.savefig(filename)
     plt.clf()
 
-    plt.bar(range(5), [m[1] for m in most], align='center', alpha=0.5)
-    plt.xticks(range(5), [m[0] + '\n' + class_to_name[m[0]] for m in most], fontsize = 'xx-small')
+    plt.bar(range(10), [m[1] for m in most], align='center', alpha=0.5)
+    plt.xticks(range(10), [m[0] + '\n' + class_to_name[m[0]] for m in most], fontsize = 'xx-small')
     plt.ylabel('Misclassified')
     plt.title('Most Misclassified Images')
     filename = 'err_most.png'
@@ -327,9 +327,9 @@ def run_experiment(args):
 
     for epoch in range(1, epochs_to_run + 1):
         # train for 1 epoch
-        total_minibatch_count = train(args, model, optimizer, train_loader,
-                                    epoch, total_minibatch_count,
-                                    train_losses, train_accs, train_topk_accs)
+        #total_minibatch_count = train(args, model, optimizer, train_loader,
+        #                            epoch, total_minibatch_count,
+        #                            train_losses, train_accs, train_topk_accs)
         
         # validate progress on test dataset
         val_acc = test(args, model, val_loader, epoch, total_minibatch_count,
